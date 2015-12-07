@@ -1,6 +1,6 @@
 % Convenience class for assembling SFDyn objects.
 % Allows for easy coordinate creation, energy specification,
-% and creates the SFDyn object for the user.
+% and creates the SFDyn object or acceleration function for the user.
 
 classdef DynTool < handle
 	methods (Access = public)
@@ -12,6 +12,7 @@ classdef DynTool < handle
 		%     this A handle to this object
 		function this = DynTool
 			this.lagrangian = sym(0);
+			this.constraints = sym([]);
 		end % LagrDyn
 
 		% This function adds a new coordinate to this dynamics system.
@@ -73,7 +74,58 @@ classdef DynTool < handle
 			this.lagrangian = this.lagrangian - expr;
 		end % addPE
 
-		% Generates and returns the SFDyn object
+		% Adds a new constraint
+		%
+		% Parameters:
+		%     expr  The expression for the constraint. Dynamically set to 0
+		%
+		% Returns:
+		%     expr  The constraint expression.
+		function expr = addConstraint(self, expr)
+			% Diagnostic message for the user
+			disp(['Adding constraint expression ' char(expr)])
+
+			% Directly add the constraint to the symbolic constraint vector
+			self.constraints(end+1) = expr;
+		end
+
+		% Generates and returns the acceleration function for a constrained system
+		%
+		% The returned function takes in the positions and velocities
+		% and computes the accelerations
+		function accel_fcn = genAccelFcn(self)
+			% The linear systems of equations takes the form
+			%     lhsMat * [ddx; lambda] = rhs
+
+			% Various Jacobians which are incorporated into lhsMat and rhs
+			dL_ddr = jacobian(self.lagrangian, self.dcoords);
+			df_dq = jacobian(self.constraints, self.coords);
+			dt_df_dq_qcomp = reshape(...
+				jacobian(df_dq, self.coords) * self.dcoords...
+			, numel(self.constraints), numel(self.coords));
+
+			% Compute the left-hand side matrix, which includes both
+			% the dynamics and the constraint equations.
+			lhsMat = [ jacobian(dL_ddr, self.dcoords), df_dq.'
+			           df_dq,           zeros(numel(self.constraints) * [1 1]) ]
+
+			% Right hand side of the system of equations
+			rhs = [ jacobian(self.lagrangian, self.coords).' - jacobian(dL_ddr, self.coords) * self.dcoords
+			        -dt_df_dq_qcomp * self.dcoords ]
+
+			% Generate anonymous functions to calculate lhsMat and rhs
+			lhsMatFcn = matlabFunction(lhsMat, 'vars', {self.coords, self.dcoords});
+			rhsFcn = matlabFunction(rhs, 'vars', {self.coords, self.dcoords});
+
+			% Generate the anonymous acceleration function
+			subsref_struct.type = '()';
+			subsref_struct.subs = {1:numel(self.coords)}
+			accel_fcn = @(pos, vel) subsref(lhsMatFcn(pos, vel) \ rhsFcn(pos, vel), subsref_struct);
+		end
+		% and returns the acceleration vector.
+
+		% Generates and returns the SFDyn object.
+		% Ignores constraints!!!
 		function sfdyn = genSFDyn(self)
 			% Pass our stored values to SFDyn's constructor, which does all the work
 			sfdyn = SFDyn(self.lagrangian, self.coords, self.dcoords);
@@ -87,5 +139,8 @@ classdef DynTool < handle
 
 		% Lagrangian expression
 		lagrangian@sym
+
+		% Dynamic constraints. These are set equal to 0 when solving for the acceleration function
+		constraints@sym
 	end % properties
 end % classdef
