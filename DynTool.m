@@ -107,11 +107,11 @@ classdef DynTool < handle
 			% Compute the left-hand side matrix, which includes both
 			% the dynamics and the constraint equations.
 			lhsMat = [ jacobian(dL_ddr, self.dcoords), df_dq.'
-			           df_dq,           zeros(numel(self.constraints) * [1 1]) ]
+			           df_dq,           zeros(numel(self.constraints) * [1 1]) ];
 
 			% Right hand side of the system of equations
 			rhs = [ jacobian(self.lagrangian, self.coords).' - jacobian(dL_ddr, self.coords) * self.dcoords
-			        -dt_df_dq_qcomp * self.dcoords ]
+			        -dt_df_dq_qcomp * self.dcoords ];
 
 			% Generate anonymous functions to calculate lhsMat and rhs
 			lhsMatFcn = matlabFunction(lhsMat, 'vars', {self.coords, self.dcoords});
@@ -119,7 +119,7 @@ classdef DynTool < handle
 
 			% Generate the anonymous acceleration function
 			subsref_struct.type = '()';
-			subsref_struct.subs = {1:numel(self.coords)}
+			subsref_struct.subs = {1:numel(self.coords)};
 			accel_fcn = @(pos, vel) subsref(lhsMatFcn(pos, vel) \ rhsFcn(pos, vel), subsref_struct);
 		end
 		% and returns the acceleration vector.
